@@ -1,0 +1,123 @@
+---
+title: "TextProcessing"
+author: "Gregory Smith"
+date: "March 7, 2016"
+output: html_document
+---
+
+General Setup and Configuration
+
+## Summary 
+This markdown document includes code that is very slow and inefficient.  However it is good for understanding some of the basic concepts behind text mining.
+
+It also includes an example of a simple way to time a code block
+Holding onto the following code blocks for future examples, etc.
+
+```{r}
+WorkingDir <- ("D:/Repository/Capstone/")
+DataDir <- ("D:/Repository/Capstone/Dataset/")
+# Data has been downloaded and extracted to the Datasets folder
+DataLang <- "en_US."
+FileNews <- paste(c(DataDir, DataLang, "news.txt"), collapse = "")
+FileBlog <- paste(c(DataDir, DataLang, "blogs.txt"), collapse = "")
+FileTwitter <- paste(c(DataDir, DataLang, "twitter.txt"), collapse = "")
+```
+
+
+Read in the Files
+```{r}
+#Set percentage (as decimal) to sample from each of the libraries
+SamplePercentage <- 0.10
+set.seed(132016)
+#Read in Files
+ListNews <- readLines(FileNews, warn = FALSE)
+ListBlog <- readLines(FileBlog, warn = FALSE)
+ListTweet  <- readLines(FileTwitter, warn = FALSE) 
+
+#Select Sample from Files
+SampleNews <- sample(ListNews, round(length(ListNews)*SamplePercentage))
+SampleBlogs <- sample(ListBlog, round(length(ListBlog)*SamplePercentage))
+SampleTweets <- sample(ListTweet, round(length(ListTweet)*SamplePercentage))
+```
+
+Clean Text
+```{r}
+
+CleanText<- function(rawText)
+{
+        #Remove Punctuation except '
+        cText <- gsub("[^[:alnum:][:space:]']", "", rawText)
+        #Remove Numbers
+        cText <- gsub("\\d", "", cText)
+        #Convert to Lowercase
+        cText <- tolower(cText) 
+        #remove ' if start of word - not tested
+        cText <- gsub("(^')","");
+        #Return Clean Text 
+        cText       
+}
+
+clnNewsText <- CleanText(SampleNews) 
+clnBlogsText <- CleanText(SampleBlogs)
+clnTweetText <- CleanText(SampleTweets)
+```
+
+
+```{r}
+TokenizeText <- function(rawText)
+{
+        index <- 1
+        TokenWords <- NULL
+        while(index < length(rawText)-1)
+        {
+                textLine <- rawText[index]  
+                LineWords <- as.vector(unlist(strsplit(textLine, "\\s+")))
+                TokenWords <- c(TokenWords,LineWords)
+                index <- index + 1
+        }
+        TokenWords
+
+}
+
+TimeStart <- Sys.time()
+    WordsNews <- TokenizeText(clnNewsText)
+TimeStop <- Sys.time()
+WordsTokenTime_News <- TimeStop - TimeStart
+
+TimeStart <- Sys.time()
+   WordsBlog <- TokenizeText(clnBlogsText)
+TimeStop <- Sys.time()
+WordsTokenTime_Blog <- TimeStop - TimeStart
+
+
+TimeStart <- Sys.time()
+   WordsTwitter <- TokenizeText(clnTweetText)
+TimeStop <- Sys.time()
+WordsTokenTime_Twitter <- TimeStop - TimeStart
+
+```
+The Time was very inefficient.
+ WordsTokenTime_News
+Time difference of 12.20106 secs
+> WordsTokenTime_Blog
+Time difference of 49.06312 mins
+> WordsTokenTime_Twitter
+Time difference of 1.765623 hours
+> 
+for 10% of full Text.
+
+Changing to the tm package.
+
+Sort Count Words
+
+```{r}
+
+
+```
+
+
+Remove Profanity - list found at http://BannedWordList.com
+```{R}
+ProfanityList <- readLines("D:/Repository/Capstone/Dataset/Profanity/Swearwords.csv")
+```
+

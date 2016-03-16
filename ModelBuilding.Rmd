@@ -1,0 +1,120 @@
+---
+title: "ModelBuilding"
+author: "Gregory Smith"
+date: "March 14, 2016"
+output: html_document
+---
+
+
+Limit Data sets to solid counts
+
+Load Data
+```{r}
+library(stringr)
+load("cutdata.rda")
+load("fulldata.rda")
+```
+
+
+Build the table for the model this will allow us to use a series of 5-grams to determine the weight behind each of the preceding grams
+Break-n-grams
+```{r}
+BreakFinalProb <- function (x)
+{
+        #Reorder based on Alpha of Grams
+        x$grams <- as.character(x$grams)
+        x <- x[order(x$grams),]
+        n<- str_count(x[1,3], pattern = " ")
+        gram.head <- paste(word(x$grams,1,n),sep = " ")
+        x<-cbind(x,gram.head)
+        gram.final <- word(x$grams, -1)
+        x<-cbind(x,gram.final)
+        #newGramName <- paste(n,".position",sep = "")
+        #names(x)[names(x) == 'gram.final'] <- newGramName
+        i <- 1
+        newStats <- NULL
+        nrow(x)
+        while(i < nrow(x))
+        {
+              Head.Text <- x[i,"gram.head"]
+              Head.Text
+              df.head <- subset(x,x$gram.head==Head.Text)
+              Count.Total <- sum(df.head$count)
+              Final.Prob <- df.head$count/Count.Total
+              df.head <- cbind(df.head,Final.Prob)
+              newStats <- rbind(newStats,df.head)
+              i <- i + nrow(df.head)
+        }
+        newStats
+        #probability counts of each tail / Total counts of the duplicate Head
+}
+
+```
+
+Test the Topgramsep tool
+```{r}
+TimeStart <- Sys.time()
+        FinalProb4 <- BreakFinalProb(lgramstats.five)
+        FinalProb3 <- BreakFinalProb(lgramstats.four)
+        FinalProb2 <- BreakFinalProb(lgramstats.tri)
+        FinalProb1 <- BreakFinalProb(lgramstats.bi)
+TimeStop <- Sys.time()
+TimeProcessFinalProb.all <- TimeStop - TimeStart
+
+```
+
+```{r}
+save(list=c("FinalProb1","FinalProb2","FinalProb3","FinalProb4"),file = "ProbDF.rda")
+
+```
+
+Create the table of breakdowns
+```{r}
+#  Pass in a series of 5-grams to return a new data frame to help build the model
+BreakDown.5gram <- function (x)
+{
+        x$grams <- as.character(x$grams)
+        x <- x[order(x$grams),]
+        n<- str_count(x[1,3], pattern = " ")
+        gram.head <- paste(word(x$grams,1,n),sep = " ")
+        x<-cbind(x,gram.head)
+        gram.final <- word(x$grams, -1)
+        x<-cbind(x,gram.final)
+        single <- word(x$grams, 4)
+        x<-cbind(x,single)
+        bi <-word(x$grams, 3,4)
+        x<-cbind(x,bi)
+        tri <-word(x$grams,2,4)
+        x<-cbind(x,tri)
+        quad <- word(x$grams,1,4)
+        x<-cbind(x,quad)
+        x
+}
+```
+
+#build the model table
+```{r}
+
+TimeStart <- Sys.time()
+       df.model <- BreakDown.5gram(gramsStats.five)
+TimeStop <- Sys.time()
+Build_df.model_Time <- TimeStop - TimeStart
+
+```
+
+Build the model
+```{r}
+model.df.sample <- subset(df.model,select=c(tri,quad,gram.final) )
+model.df.sample <- model.df.sample[sample(nrow(df.model), 12), ]
+split=0.80
+trainIndex <- createDataPartition(model.df.sample$gram.final, p=split, list=FALSE)
+data_train <- df.model[ trainIndex,]
+data_test <- df.model[-trainIndex,]
+
+TimeStart <- Sys.time()
+     model <- randomForest(gram.final~., data=data_train)
+TimeStop <- Sys.time()
+Time_BuildModel<- TimeStop - TimeStart
+
+```
+

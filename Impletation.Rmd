@@ -1,0 +1,28 @@
+---
+title: "Model Implementation"
+author: "Gregory Smith"
+date: "March 16, 2016"
+output: html_document
+---
+
+
+Load the probability tables
+```{r}
+load("ProbDF.rda")
+
+```
+
+Testing the results Bi-Gram
+```{r}
+MyString <- "good"
+MyFinal <- "night"
+MyData <- FinalProb1[which(FinalProb1$gram.head == MyString),]
+MyAnswer <- MyData[which(MyData$gram.final == MyFinal),]
+```
+
+Testing the results - TriGram
+```{r}
+MyString <- "good night"
+MyData <- FinalProb2[which(FinalProb2$gram.head == MyString),]
+
+```

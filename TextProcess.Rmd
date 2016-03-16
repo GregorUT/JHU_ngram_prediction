@@ -1,0 +1,462 @@
+---
+title: "Text Processing"
+author: "Gregory Smith"
+date: "March 7, 2016"
+output: html_document
+---
+#Milestone - Corpus Cleanup & Analysis
+
+## Corpus creation and cleanup
+
+###Corpus creation 
+After some initial cleanup of the twitter data(due do some possible file corruption or special characters not common to English), the three files are read into a volatile Corpora using the VCorpus call, part of the tm library.
+
+The three files are comprised of:
+en_US.blogs.txt    Size -  205,235 kb      Entries  -   899,288   
+en_US.news.txt     Size -  200,989 kb      Entries  -    77,259   
+en_US.twitter.txt  Size -  163,735 kb      Entries  - 2,360,151 
+
+
+###Steps to clean data
+*Remove Numbers
+*Transfer to lowercase
+*Remove Punctuation
+*Remove profanity
+*Limit all remaining characters to alpha
+*Remove white space
+
+Since "stopwords" are a vital part of the English language the will be necessary for the model.
+
+## Determine the sample size
+The amount of data contained in the raw corpus is substantially more data than can be efficiently used.
+
+###With an inital sample set at 5%
+Unique Words - 108,097    
+
+Bi-grams     - 1,111,191      2+ occurrences - 257,306   10+ occurrences   36,085
+Tri-grams    - 2,308,081      2+ occurrences - 235,449   10+ occurrences   16,205
+4-grams      - 2,765,625      2+ occurrences -  94,605   10+ occurrences    2,233
+5-gram       - 2,768,124      2+ occurrences -  27,587   10+ occurrences      242
+
+###With the sample set at 7.5%
+Unique Words - 137,880    
+
+Bi-grams     - 1,523,245      2+ occurrences - 365,178   10+ occurrences   53,667
+Tri-grams    - 3,332,343      2+ occurrences - 365,170   10+ occurrences   27,661
+4-grams      - 4,107,512      2+ occurrences - 160,973   10+ occurrences    4,429
+5-grams      - 4,155,420      2+ occurrences -  50,016   10+ occurrences      566
+
+###With the sample set at 10%
+
+unique words - 163,605     
+
+Bi-grams     - 1,896,807      2+ occurrences - 463,956   10+ occurrences   70,548
+Tri-grams    - 4,303,158      2+ occurrences - 493,656   10+ occurrences   39,291
+4-grams      - 5,408,322      2+ occurrences - 229,837   10+ occurrences    7,032
+5-grams      - 5,513,363      2+ occurrences -  70,548   10+ occurrences    1,005
+
+###With the sample set at 12.5%
+
+Unique words - 186,173
+
+Bi-grams     -2,241,504       2+ occurrences - 558,512   10+ occurrences   86,474
+Tri-grams    -5,231,169       2+ occurrences - 621,953   10+ occurrences    51,361
+4-grams          *                              *                          *
+5-grams          *                              *                          *
+
+with 12.5% size sample NGramTokenizer returned out of memory error while tokenizing 4-gram and 5-gram.
+
+###with the sample set at 15%
+
+Unique words 208,337       
+Bi-grams     *                  *                       *
+Tri-grams    *                  *                       *
+4-grams      *                  *                       *
+5-grams      *                  *                       *
+
+With 15% size sample NGramTokenizer returned out of memory error.
+
+##Sample Size Summary 
+Since additional information is added as the corpus size increases. The model will be based on a 10% sample size corpus.
+Since the desktop creating the Document-Term-Matrix has 4 Gigs allocated to the heap size, the 10% corpus should allow a sizable
+DTM to use for the model.
+
+If DTM proves to be too big for efficient use, the occurrence of the n-gram can be used as a variable.
+
+##The Twitter Impact
+Through the exploration of data, it becomes apparent that certian phrases and terms occur at a much higher probability than would occur in natural language useage.  In order to offset the "Twitter Anomonaly".  The weight of the various models will need to be adjusted to more closer match natural language useage.
+
+Examples - 
+
+While exploring the break down of a 3 gram 
+"good night" bi-gram leads to "twitter" 23.4% of occurances.
+
+Prerequisites and file config
+```{r}
+library(plyr)
+library(tm)
+library(slam)
+library(RWeka)
+library(reshape2)
+library(stringr)
+library(klaR)
+library(caret)
+
+WorkingDir <- ("D:/Repository/Capstone/")
+DataDir <- ("D:/Repository/Capstone/Dataset/")
+# Data has been downloaded and extracted to the Datasets folder
+DataLang <- "en_US."
+FileNews <- paste(c(DataDir, DataLang, "news.txt"), collapse = "")
+FileBlog <- paste(c(DataDir, DataLang, "blogs.txt"), collapse = "")
+FileTwitter <- paste(c(DataDir, DataLang, "twitter.txt"), collapse = "")
+ProfanityList <- readLines("D:/Repository/Capstone/Dataset/Profanity/Swearwords.csv")
+```
+
+
+The Twitter file contains several unusual characters.  Although these could be cleaned with the rest of the corpus, for timing efficiency they will be cleaned prior to reading into the corpus.
+```{r}
+#*****************************************************************************
+#***   This only needs to be run on time as it will clean the twitter file ***
+#*****************************************************************************
+
+TwitterText <- readLines(FileTwitter, encoding="UTF-8")
+# Here are a list of the characters
+TwitterText <- gsub("[\u201E\u201F\u0097\u0083\u0082\u0080\u0081\u0090\u0095\u009f\u0098\u008d\u008b\u0089\u0087\u008a¦??.¤º-»«Ã¢â¬Å¥¡Â¿°£·©Ë¦¼¹¸±???ð]+", " ", TwitterText)
+write.table(TwitterText,file=FileTwitter,row.names=FALSE,quote=F)
+
+```
+
+Corpus Creation and Cleaning
+```{r}
+
+#encoding = latin1 corrects for probles of international characters that showed up in the toLower() transformation on the corpus
+TimeStart <- Sys.time()
+        RawCorpus <- VCorpus(DirSource(directory=DataDir, encoding = "latin1")
+                          , readerControl = list(language = "en"))
+TimeStop <- Sys.time()
+TimeLoadFiles <- TimeStop - TimeStart
+
+```
+
+```{r} 
+#Break here while developing
+#make a copy of the original corpus prior to making any changes to prevent having to re-read the data.
+
+pCorpus <- RawCorpus
+set.seed (132016) 
+SamplePercentage <- 0.10 #percentage to sample as a decimal
+pCorpus[[1]]$content<-sample(pCorpus[[1]]$content, length(pCorpus[[1]]$content)*SamplePercentage)
+pCorpus[[2]]$content<-sample(pCorpus[[2]]$content, length(pCorpus[[2]]$content)*SamplePercentage)
+pCorpus[[3]]$content<-sample(pCorpus[[3]]$content, length(pCorpus[[3]]$content)*SamplePercentage)
+
+```
+
+
+```{r}
+#Break here while developing
+
+# Clean the corpus
+
+# Remove any numbers
+pCorpus <- tm_map(pCorpus, removeNumbers)   
+
+#to Lower requires a content_transformer in order to not disrupt the corpus.
+pCorpus <- tm_map(pCorpus, content_transformer(tolower))
+
+# Remove punctuation - this will remove apostrophes as well but the contraction would still be readable
+pCorpus<- tm_map(pCorpus, removePunctuation)
+
+# remove profanity
+pCorpus<-tm_map(pCorpus,removeWords, ProfanityList)
+
+# remove stopwords 
+#pCorpus <- tm_map(pCorpus, removeWords, stopwords("en"))
+
+#remove all non-alpha
+remNonAlph <- function(x) gsub("[^a-z0-9]"," ",x)
+pCorpus <- tm_map(pCorpus, content_transformer(remNonAlph))
+
+# Remove Whitespace
+pCorpus<- tm_map(pCorpus, stripWhitespace)
+
+#read vector(s) back into the corpus.  Some of the transforms break the corpus format.
+pCorpus <- Corpus(VectorSource(pCorpus))
+```
+Create Document Term Matrix from Corpus
+```{r}
+        #Create a Document Term Matrix
+TimeStart <- Sys.time()
+       tdm <- TermDocumentMatrix(pCorpus)
+TimeStop <- Sys.time()
+
+TimeCreatetdm <- TimeStop - TimeStart
+
+#put in a standard matrix
+tdm.single <- as.matrix(tdm)
+```
+
+
+```{r}
+#Break for speed in testing
+Word.counts <- rowSums(tdm.single)
+
+#working with word counts as a matrix
+#build the matrix
+
+colwords <- names(Word.counts)
+colnums <- as.numeric(Word.counts)
+word.counts.matrix <- as.data.frame(cbind(colwords, colnums))
+word.counts.matrix$colnums <- as.numeric(as.character(word.counts.matrix$colnums))
+rownames(word.counts.matrix)<NULL
+sorted_words <- word.counts.matrix[order(word.counts.matrix$colnums,decreasing = TRUE),]
+
+#top 25 words with stopwords removed
+histwords <- head(sorted_words, 25)
+rownames(histwords)<- NULL
+
+
+summary(sorted_words)
+
+```
+
+Breakout each document
+```{r}
+breakout <- function(doc)
+{
+        
+       vector <- inspect(tdm[,doc])
+       colwords <- rownames(vector)
+       colcounts <- as.numeric(vector)
+       docmat <- as.data.frame(cbind (colwords, colcounts))
+       docmat$colcounts <- as.numeric(as.character(docmat$colcounts, decreasing = TRUE))
+       rownames(docmat) <-NULL
+       docmat
+}
+vnews <- breakout(1)
+vblog <- breakout(2)
+vtwit <- breakout(3)
+
+```
+
+
+```{r}
+bgramTokenizer <- function(x) NGramTokenizer(x, Weka_control(min=2,max=2))
+tgramTokenizer <- function(x) NGramTokenizer(x, Weka_control(min=3,max=3))
+frgramTokenizer <- function(x) NGramTokenizer(x, Weka_control(min=4,max=4))
+fvgramTokenizer <- function(x) NGramTokenizer(x, Weka_control(min=5, max=5))
+
+tdm.bi <- TermDocumentMatrix(pCorpus, control = list(tokenize = bgramTokenizer))
+tdm.tri <- TermDocumentMatrix(pCorpus, control = list(tokenize = tgramTokenizer))
+tdm.four <-TermDocumentMatrix(pCorpus, control = list(tokenize = frgramTokenizer))
+tdm.five <-TermDocumentMatrix(pCorpus, control = list(tokenize = fvgramTokenizer))
+
+findFreqTerms(tdm.five,5)
+```
+
+```{r}
+m <- inspect(tdm.five)
+DF <- as.data.frame(m, stringsAsFactors = FALSE)
+write.table(DF, file = "df_gram_five_05.dfm")
+```
+
+Get counts for various n-grams
+```{r}  
+tdm.bi <- TermDocumentMatrix(pCorpus, control = list(tokenize = bgramTokenizer))
+tdm.bi.matrix <- as.matrix(tdm.bi)
+bi.counts <- rowSums(tdm.bi.matrix)
+bi.multipleuse <-count(bi.counts>1) 
+bi.tenuse <-count(bi.counts>9) 
+
+tdm.tri <- TermDocumentMatrix(pCorpus, control = list(tokenize = tgramTokenizer))
+tdm.tri.matrix <- as.matrix(tdm.tri)
+tri.counts <- rowSums(tdm.tri.matrix)
+tri.multipleuse <-count(tri.counts>1) 
+tri.tenuse <-count(tri.counts>9) 
+
+tdm.four <-TermDocumentMatrix(pCorpus, control = list(tokenize = frgramTokenizer))
+tdm.four.matrix <- as.matrix(tdm.four)
+four.counts <- rowSums(tdm.four.matrix)
+four.multipleuse <- count(four.counts>1)
+four.tenuse <- count(four.counts>10)
+
+tdm.five <-TermDocumentMatrix(pCorpus, control = list(tokenize = fvgramTokenizer))
+tdm.five.matrix <- as.matrix(tdm.five)
+five.counts <- rowSums(tdm.five.matrix)
+five.multipleuse <- count(five.counts>1)
+five.tenuse <- count(five.counts>10)
+```
+
+Collapse tdm into simple word count matrix
+```{r}
+h
+bgramTokenizer <- function(x) NGramTokenizer(x, Weka_control(min=2,max=2))
+tgramTokenizer <- function(x) NGramTokenizer(x, Weka_control(min=3,max=3))
+frgramTokenizer <- function(x) NGramTokenizer(x, Weka_control(min=4,max=4))
+fvgramTokenizer <- function(x) NGramTokenizer(x, Weka_control(min=5, max=5))
+
+tdm.single <- TermDocumentMatrix(pCorpus)
+tdm.bi <- TermDocumentMatrix(pCorpus, control = list(tokenize = bgramTokenizer))
+tdm.tri <- TermDocumentMatrix(pCorpus, control = list(tokenize = tgramTokenizer))
+tdm.four <-TermDocumentMatrix(pCorpus, control = list(tokenize = frgramTokenizer))
+tdm.five <-TermDocumentMatrix(pCorpus, control = list(tokenize = fvgramTokenizer))
+
+CntMtx.sng <- rowSums(as.matrix(tdm.single))
+CntMtx.bi <- rowSums(as.matrix(tdm.bi))
+CntMtx.tri <- rowSums(as.matrix(tdm.tri))
+CntMtx.four <- rowSums(as.matrix(tdm.four))
+CntMtx.five <- rowSums(as.matrix(tdm.five))
+
+```
+
+Generate Usage Dataframe
+```{r}
+
+genstats <- function(count)
+{
+        TotalCount <- sum(count)
+        Prob <- count/TotalCount
+        df.stats <- as.data.frame(cbind(count,Prob))
+        grams <- rownames(df.stats)
+        df.stats <- cbind(df.stats,grams)
+        rownames(df.stats) <- NULL
+        df.ordered.stats <- df.stats[order(-Prob),]
+        df.ordered.stats
+}
+
+gramsStats.single <- genstats(CntMtx.sng)
+gramsStats.bi <- genstats(CntMtx.bi)
+gramsStats.tri<- genstats(CntMtx.tri)
+gramsStats.four <- genstats(CntMtx.four)
+gramsStats.five <- genstats(CntMtx.five)
+```
+
+Object Size of Tokenized Data
+```{r}
+memsize.full.single <- object.size(gramsStats.single)
+memsize.full.bi <- object.size(gramsStats.bi)
+memsize.full.tri<- object.size(gramsStats.tri)
+memsize.full.four <- object.size(gramsStats.four)
+memsize.full.five <- object.size(gramsStats.five)
+```
+
+Save full Data With Stats
+```{r}
+save(list=c("gramsStats.single", "gramsStats.bi", "gramsStats.tri","gramsStats.four", "gramsStats.five"), file="FullData.rda")
+```
+
+Examining Permilles and subsetting above the cut point
+```{r}
+HighPercentage <- function (x)
+{
+        quantile(x$count, probs = seq(.95,1,.005)) 
+}
+Permille.Single <- HighPercentage(gramsStats.single)
+Permille.bi <- HighPercentage(gramsStats.bi)
+Permille.tri <- HighPercentage(gramsStats.tri)
+Permille.four <- HighPercentage(gramsStats.four)
+Permille.five <- HighPercentage(gramsStats.five)
+Permille.Single
+Permille.bi
+Permille.tri
+Permille.four
+Permille.five
+# In order to trim data, the break point of 97.5% 
+cut.single <- 129
+cut.bi <- 14
+cut.tri <- 5
+cut.four <- 3
+cut.five <- 3
+
+#Limited gramstats
+lgramstats.single <- subset(gramsStats.single,count > cut.single)
+lgramstats.bi <- subset(gramsStats.bi,count > cut.bi)
+lgramstats.tri <- subset(gramsStats.tri,count > cut.tri)
+lgramstats.four <- subset(gramsStats.four,count > cut.four)
+lgramstats.five <- subset(gramsStats.five,count > cut.five)
+
+memsize.cut.single <- object.size(lgramstats.bi)
+memsize.cut.bi <- object.size(lgramstats.bi)
+memsize.cut.tri<- object.size(lgramstats.tri)
+memsize.cut.four <- object.size(lgramstats.four)
+memsize.cut.five <- object.size(lgramstats.five)
+
+```
+
+Save full Data With Stats
+```{r}
+save(list=c("lgramstats.single", "lgramstats.bi", "lgramstats.tri","lgramstats.four", "lgramstats.five"), file="CutData.rda")
+```
+
+
+Build the table for the model this will allow us to use a series of 5-grams to determine the weight behind each of the preceding grams
+Break-n-grams
+```{r}
+Topgramsep <- function (x)
+{
+        #Reorder based on Alpha of Grams
+        x$grams <- as.character(x$grams)
+        x <- x[order(x$grams),]
+        n<- str_count(x[1,3], pattern = " ")
+        gram.head <- paste(word(x$grams,1,n),sep = " ")
+        x<-cbind(x,gram.head)
+        gram.final <- word(x$grams, -1)
+        x<-cbind(x,gram.final)
+        #newGramName <- paste(n,".position",sep = "")
+        #names(x)[names(x) == 'gram.final'] <- newGramName
+        x
+        #count number of duplicate Head
+        #probability counts of each tail / Total counts of the duplicate Head
+}
+
+```
+
+Create the table of breakdowns
+```{r}
+#  Pass in a series of 5-grams to return a new data frame to help build the model
+BreakDown.5gram <- function (x)
+{
+        x$grams <- as.character(x$grams)
+        x <- x[order(x$grams),]
+        n<- str_count(x[1,3], pattern = " ")
+        gram.head <- paste(word(x$grams,1,n),sep = " ")
+        x<-cbind(x,gram.head)
+        gram.final <- word(x$grams, -1)
+        x<-cbind(x,gram.final)
+        single <- word(x$grams, 4)
+        x<-cbind(x,single)
+        bi <-word(x$grams, 3,4)
+        x<-cbind(x,bi)
+        tri <-word(x$grams,2,4)
+        x<-cbind(x,tri)
+        quad <- word(x$grams,1,4)
+        x<-cbind(x,quad)
+        x
+}
+```
+
+#build the model table
+```{r}
+
+TimeStart <- Sys.time()
+       df.model <- BreakDown.5gram(gramsStats.five)
+TimeStop <- Sys.time()
+Build_df.model_Time <- TimeStop - TimeStart
+
+```
+
+Build the model
+```{r}
+model.df.sample <- subset(df.model,select=c(tri,quad,gram.final) )
+model.df.sample <- model.df.sample[sample(nrow(df.model), 12), ]
+split=0.80
+trainIndex <- createDataPartition(model.df.sample$gram.final, p=split, list=FALSE)
+data_train <- df.model[ trainIndex,]
+data_test <- df.model[-trainIndex,]
+
+TimeStart <- Sys.time()
+     model <- randomForest(gram.final~., data=data_train)
+TimeStop <- Sys.time()
+Time_BuildModel<- TimeStop - TimeStart
+
+```
+
