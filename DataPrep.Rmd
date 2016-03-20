@@ -1,0 +1,394 @@
+---
+title: "N-gram Prediction - Data Prep"
+author: "Gregory Smith"
+date: "March 17, 2016"
+output: word_document
+---
+
+#Milestone - Corpus Cleanup & Analysis
+
+## Corpus creation and cleanup
+```{r setup, include=FALSE}
+#knitr options.
+knitr::opts_chunk$set(cache=TRUE)
+```
+
+
+```{r, echo=FALSE}
+# Prerequisites and file config
+library(plyr)
+library(tm)
+library(slam)
+library(RWeka)
+library(reshape2)
+library(stringr)
+library(klaR)
+library(caret)
+library(ggplot2)
+
+WorkingDir <- ("D:/Repository/Capstone/")
+DataDir <- ("D:/Repository/Capstone/Dataset/")
+# Data has been downloaded and extracted to the Datasets folder
+DataLang <- "en_US."
+FileNews <- paste(c(DataDir, DataLang, "news.txt"), collapse = "")
+FileBlog <- paste(c(DataDir, DataLang, "blogs.txt"), collapse = "")
+FileTwitter <- paste(c(DataDir, DataLang, "twitter.txt"), collapse = "")
+ProfanityList <- readLines("D:/Repository/Capstone/Dataset/Profanity/Swearwords.csv")
+```
+
+###Corpus creation 
+After some initial cleanup of the twitter data(due do some possible file corruption or special characters not common to English), the three files are read into a volatile Corpora using the VCorpus call, part of the tm library.
+
+The three files are comprised of:
+en_US.blogs.txt    Size -  205,235 kb      Entries  -   899,288   
+en_US.news.txt     Size -  200,989 kb      Entries  -    77,259   
+en_US.twitter.txt  Size -  163,735 kb      Entries  - 2,360,151 
+
+
+###Steps to clean data
+*Remove Numbers
+*Transfer to lowercase
+*Remove Punctuation
+*Remove profanity
+*Limit all remaining characters to alpha
+*Remove white space
+
+Since "stopwords" are a vital part of the English language the will be necessary for the model.
+
+The Twitter file contains several unusual characters.  Although these could be cleaned with the rest of the corpus, for timing efficiency they will be cleaned prior to reading into the corpus.
+```{r, echo=FALSE}
+#*****************************************************************************
+#***   This only needs to be run on time as it will clean the twitter file ***
+#*****************************************************************************
+
+TwitterText <- readLines(FileTwitter, encoding="UTF-8")
+# Here are a list of the characters
+TwitterText <- gsub("[\u201E\u201F\u0097\u0083\u0082\u0080\u0081\u0090\u0095\u009f\u0098\u008d\u008b\u0089\u0087\u008a¦??.¤º-»«Ã¢â¬Å¥¡Â¿°£·©Ë¦¼¹¸±???ð]+", " ", TwitterText)
+write.table(TwitterText,file=FileTwitter,row.names=FALSE,quote=F)
+
+```
+
+
+```{r, echo=FALSE}
+# Corpus Creation and Cleaning
+# encoding = latin1 corrects for probles of international characters that showed up in the toLower() transformation on the corpus
+TimeStart <- Sys.time()
+        RawCorpus <- VCorpus(DirSource(directory=DataDir, encoding = "latin1")
+                          , readerControl = list(language = "en"))
+TimeStop <- Sys.time()
+TimeLoadFiles <- TimeStop - TimeStart
+
+```
+The size of the corpus in memory is `r object.size(RawCorpus)`.
+It took `r TimeLoadFiles` to read in the corpus.
+
+## Determine the sample size
+The amount of data contained in the raw corpus is substantially more data than can be efficiently used.
+
+###With an inital sample set at 5%
+Unique Words - 108,097    
+
+Bi-grams     - 1,111,191      2+ occurrences - 257,306   10+ occurrences   36,085
+Tri-grams    - 2,308,081      2+ occurrences - 235,449   10+ occurrences   16,205
+4-grams      - 2,765,625      2+ occurrences -  94,605   10+ occurrences    2,233
+5-gram       - 2,768,124      2+ occurrences -  27,587   10+ occurrences      242
+
+###With the sample set at 7.5%
+Unique Words - 137,880    
+
+Bi-grams     - 1,523,245      2+ occurrences - 365,178   10+ occurrences   53,667
+Tri-grams    - 3,332,343      2+ occurrences - 365,170   10+ occurrences   27,661
+4-grams      - 4,107,512      2+ occurrences - 160,973   10+ occurrences    4,429
+5-grams      - 4,155,420      2+ occurrences -  50,016   10+ occurrences      566
+
+###With the sample set at 10%
+
+unique words - 163,605     
+
+Bi-grams     - 1,896,807      2+ occurrences - 463,956   10+ occurrences   70,548
+Tri-grams    - 4,303,158      2+ occurrences - 493,656   10+ occurrences   39,291
+4-grams      - 5,408,322      2+ occurrences - 229,837   10+ occurrences    7,032
+5-grams      - 5,513,363      2+ occurrences -  70,548   10+ occurrences    1,005
+
+###With the sample set at 12.5%
+
+Unique words - 186,173
+
+Bi-grams     -2,241,504       2+ occurrences - 558,512   10+ occurrences   86,474
+Tri-grams    -5,231,169       2+ occurrences - 621,953   10+ occurrences    51,361
+4-grams          *                              *                          *
+5-grams          *                              *                          *
+
+with 12.5% size sample NGramTokenizer returned out of memory error while tokenizing 4-gram and 5-gram.
+
+###with the sample set at 15%
+
+Unique words 208,337       
+Bi-grams     *                  *                       *
+Tri-grams    *                  *                       *
+4-grams      *                  *                       *
+5-grams      *                  *                       *
+
+With 15% size sample NGramTokenizer returned out of memory error.
+
+##Sample Size Summary 
+Since additional information is added as the corpus size increases. The model will be based on a 10% sample size corpus.
+Since the desktop creating the Document-Term-Matrix has 4 Gigs allocated to the heap size, the 10% corpus should allow a sizable
+DTM to use for the model.
+
+If DTM proves to be too big for efficient use, the occurrence of the n-gram can be used as a variable.
+
+##Word Counts With 10% sample Rates
+Blog    - 2874194
+News    - 210692
+Twitter - 2278898 
+
+##The Twitter Impact
+Through the exploration of data, it becomes apparent that certain phrases and terms occur at a much higher probability than would occur in natural language usage.  In order to offset the "Twitter Bias".  The weight of the various models will need to be adjusted to more closer match natural language usage.
+
+Examples - 
+The most common 4-gram is
+Thanks for the follow
+
+The most common 3-gram is 
+Thanks for the
+
+While exploring the break down of a 3 gram 
+"good night" bi-gram leads to "twitter" 23.4% of occurrences.
+
+The nature of auto response in twitter is influencing the model.
+
+##Adjusting the sample rates for the corpus
+To balance the smaller news corpus, the news sample will be weighted with a multiple of 4
+To counter the "Twitter Bias", the twitter sample will be weighted with a multiple of .5
+The Blog sample weight will remain the same.
+
+
+```{r, echo=FALSE} 
+#Break here while developing
+#make a copy of the original corpus prior to making any changes to prevent having to re-read the data.
+
+pCorpus <- RawCorpus
+set.seed (132016) 
+SamplePercentage <- 0.10 #percentage to sample as a decimal
+blogWeight <- 1
+newsWeight <- 4
+TwitterWeight <- .5
+pCorpus[[1]]$content<-sample(pCorpus[[1]]$content, length(pCorpus[[1]]$content)*SamplePercentage*blogWeight)
+pCorpus[[2]]$content<-sample(pCorpus[[2]]$content, length(pCorpus[[2]]$content)*SamplePercentage*newsWeight)
+pCorpus[[3]]$content<-sample(pCorpus[[3]]$content, length(pCorpus[[3]]$content)*SamplePercentage*TwitterWeight)
+
+```
+The sample percentage is `r SamplePercentage*100`%.
+The weight for the blog is `r blogWeight`.
+The weight for the news is `r newsWeight`.
+the weight for the twitter is `r TwitterWeight`.
+
+
+
+```{r, echo=FALSE}
+#Break here while developing
+
+# Clean the corpus
+
+# Remove any numbers
+pCorpus <- tm_map(pCorpus, removeNumbers)   
+
+#to Lower requires a content_transformer in order to not disrupt the corpus.
+pCorpus <- tm_map(pCorpus, content_transformer(tolower))
+
+# Remove punctuation - this will remove apostrophes as well but the contraction would still be readable
+pCorpus<- tm_map(pCorpus, removePunctuation)
+
+# remove profanity
+pCorpus<-tm_map(pCorpus,removeWords, ProfanityList)
+
+# remove stopwords 
+#pCorpus <- tm_map(pCorpus, removeWords, stopwords("en"))
+
+#remove all non-alpha
+remNonAlph <- function(x) gsub("[^a-z0-9]"," ",x)
+pCorpus <- tm_map(pCorpus, content_transformer(remNonAlph))
+
+# Remove Whitespace
+pCorpus<- tm_map(pCorpus, stripWhitespace)
+
+#read vector(s) back into the corpus.  Some of the transforms break the corpus format.
+pCorpus <- Corpus(VectorSource(pCorpus))
+```
+
+
+Create Document Term Matrix from Corpus
+```{r, echo=FALSE}
+        #Create a Document Term Matrix
+TimeStart <- Sys.time()
+       tdm <- TermDocumentMatrix(pCorpus)
+TimeStop <- Sys.time()
+
+TimeCreatetdm <- TimeStop - TimeStart
+
+#put in a standard matrix
+tdm.single <- as.matrix(tdm)
+
+#Word count by document
+wordcount.doc <- as.data.frame(colSums(tdm.single))
+rownames(wordcount.doc)<- c("Blog","News","Twitter")
+```
+The number of words from each document in the corpus is:
+ head(wordcount.doc)`
+
+
+```{r, echo=FALSE}
+#To breakout each document
+breakout <- function(doc)
+{
+        
+       vector <- inspect(tdm[,doc])
+       colwords <- rownames(vector)
+       colcounts <- as.numeric(vector)
+       docmat <- as.data.frame(cbind (colwords, colcounts))
+       docmat$colcounts <- as.numeric(as.character(docmat$colcounts, decreasing = TRUE))
+       rownames(docmat) <-NULL
+       docmat
+}
+vnews <- breakout(1)
+vblog <- breakout(2)
+vtwit <- breakout(3)
+
+```
+
+
+```{r, echo=FALSE}
+#Tokenize the documents and configure the results into a Term-Document Matrix
+
+## Error in block while building document.  Loading Data in from Saved file created during manual creation.
+#bgramTokenizer <- function(x) NGramTokenizer(x, Weka_control(min=2,max=2))
+#tgramTokenizer <- function(x) NGramTokenizer(x, Weka_control(min=3,max=3))
+#frgramTokenizer <- function(x) NGramTokenizer(x, Weka_control(min=4,max=4))
+#fvgramTokenizer <- function(x) NGramTokenizer(x, Weka_control(min=5, max=5))
+
+#tdm.bi <- TermDocumentMatrix(pCorpus, control = list(tokenize = bgramTokenizer))
+#tdm.tri <- TermDocumentMatrix(pCorpus, control = list(tokenize = tgramTokenizer))
+#tdm.four <-TermDocumentMatrix(pCorpus, control = list(tokenize = frgramTokenizer))
+#tdm.five <-TermDocumentMatrix(pCorpus, control = list(tokenize = fvgramTokenizer))
+
+load(file = "TDMData.rda")
+
+#Data had to be saved in a different format
+#returning data to original state.
+tdm.single <- tdm_single
+tdm.bi <- tdm_bi
+tdm.tri <- tdm_tri
+tdm.four <- tdm_four
+tdm.five <- tdm_five
+
+CntMtx.sng <- rowSums(as.matrix(tdm.single))
+CntMtx.bi <- rowSums(as.matrix(tdm.bi))
+CntMtx.tri <- rowSums(as.matrix(tdm.tri))
+CntMtx.four <- rowSums(as.matrix(tdm.four))
+CntMtx.five <- rowSums(as.matrix(tdm.five))
+```
+
+
+```{r, echo=FALSE}
+#Generate Usage Dataframe
+
+genstats <- function(count)
+{
+        TotalCount <- sum(count)
+        Prob <- count/TotalCount
+        df.stats <- as.data.frame(cbind(count,Prob))
+        grams <- rownames(df.stats)
+        df.stats <- cbind(df.stats,grams)
+        rownames(df.stats) <- NULL
+        df.ordered.stats <- df.stats[order(-Prob),]
+        df.ordered.stats
+}
+
+gramsStats.single <- genstats(CntMtx.sng)
+gramsStats.bi <- genstats(CntMtx.bi)
+gramsStats.tri<- genstats(CntMtx.tri)
+gramsStats.four <- genstats(CntMtx.four)
+gramsStats.five <- genstats(CntMtx.five)
+```
+
+Determine Percentage of words covered by cut count
+```{r, echo=FALSE}
+CoverageCompute<- function(x)
+{
+        TotalCount <- sum(x$count)
+        TotalEntries <- nrow(x)
+        coverageList <- NULL
+        StepCount <- TotalEntries/20
+        stepnum <- 1
+        rIndex <- round(StepCount, digits = 0)
+        while (rIndex <= TotalEntries)
+        {
+                coverage <- sum(x$count[1:rIndex])/TotalCount
+                #Change from string to matrix to allow for graphs.
+                newEntry <- c(stepnum * 5, coverage)
+                coverageList <- rbind(coverageList,newEntry)
+                stepnum <- stepnum +1
+                rIndex <- rIndex + StepCount
+                                  
+        }
+        rownames(coverageList) <- NULL
+        colnames(coverageList) <- c("Frequent","Coverage")
+        coverageList <- as.data.frame(coverageList)
+}
+
+Coverage.single <- CoverageCompute(gramsStats.single)
+Coverage.bi <- CoverageCompute(gramsStats.bi)
+Coverage.tri <- CoverageCompute(gramsStats.tri)
+Coverage.four <- CoverageCompute(gramsStats.four)
+Coverage.five <- CoverageCompute(gramsStats.five)
+```
+
+#Corpus Coverage by Frequent Words
+The top 10 frequent words. 
+`r head(gramsStats.single, 10)`
+
+Coverage is the percentage of total words in the corpus covered.
+The sample of the corpus contains about 150,000 unique words
+The top 10% of most frequently used words cover 92.8% of the words used in the corpus.
+```{R, echo=FALSE}
+qplot( Frequent, Coverage, data=Coverage.single, main = "Corpus Coverage by Frequent words as a percentage", xlab = "Frequent Words as %", ylab = "Coverage of total Words as %", geom ="line")
+```
+
+
+#Bi-gram Coverage by percentage
+The top 10 bi-grams are:
+`r head(gramsStats.bi, 10)`
+
+Frequent Bi-grams is the percentage of top occuring bi-grams.
+Coverage is the percentage of total bi-grams in the corpus covered by the percentage of 
+```{R, echo=FALSE}
+qplot( Frequent, Coverage, data=Coverage.bi, main = "Bi-gram Coverage by Frequent Bigrams as a percentage", xlab = "Frequent Bi-Grams as %", ylab = "Coverage of total Bi-Grams as %", geom = "line")
+```
+
+```{r, echo=FALSE}
+determindiff <-function(x,x_count)
+{
+        delta_x <- x$Frequent[x_count:20]/100
+        delta_y <- x$Coverage[x_count:20]
+        df <- diff(delta_x)/diff(delta_y)
+        return (df)
+} 
+
+slope.bi <- determindiff(Coverage.bi, 5)
+```
+After includeing the top 25% of frequent bi-grams with a coverage of about 78% of the corpus.  The rate of coverage tapers off to ` r mean(slope.bi)` coverage for every 1 percent of fequent bi-grams added.
+
+Suggested cutpoint at 25% of frequent top bi-grams.
+
+#Tri-gram Coverage by percentage
+The top 10 tri-grams are:
+`r head(gramsStats.tri, 10)`
+
+Frequent tri-grams is the percentage of top occuring bi-grams.
+Coverage is the percentage of total tri-grams in the corpus covered by the percentage of 
+```{R, echo=FALSE}
+qplot( Frequent, Coverage, data=Coverage.tri, main = "tri-gram Coverage by Frequent Bigrams as a percentage", xlab = "Frequent tri-Grams as %", ylab = "Coverage of total tri-Grams as %")
+```
+
+After includeing the top 15% of frequent bi-grams with a coverage of about 40% of the corpus.  The rate of coverage tapers off to `r round(mean(determindiff(Coverage.tri, 3)),3)` coverage for every 1 percent of fequent bi-grams added.
